@@ -13,6 +13,10 @@ interface JournalEntryDao {
     @Query("SELECT * FROM journal_entries WHERE deleted = 0 AND (title LIKE '%' || :query || '%' OR body LIKE '%' || :query || '%') ORDER BY entryDateTimeMs DESC")
     fun searchEntries(query: String): Flow<List<JournalEntryEntity>>
 
+    /** Filter entries that contain a specific tag in their tagsJson. */
+    @Query("SELECT * FROM journal_entries WHERE deleted = 0 AND tagsJson LIKE '%' || :tag || '%' ORDER BY entryDateTimeMs DESC")
+    fun getEntriesByTag(tag: String): Flow<List<JournalEntryEntity>>
+
     @Query("SELECT * FROM journal_entries WHERE id = :id AND deleted = 0")
     suspend fun getById(id: String): JournalEntryEntity?
 
@@ -42,4 +46,8 @@ interface JournalEntryDao {
 
     @Query("SELECT * FROM journal_entries WHERE deleted = 0")
     suspend fun getAllForExport(): List<JournalEntryEntity>
+
+    /** Returns all tagsJson values so we can build the full tag list in-app. */
+    @Query("SELECT tagsJson FROM journal_entries WHERE deleted = 0 AND tagsJson != '[]'")
+    fun getAllTagsJson(): kotlinx.coroutines.flow.Flow<List<String>>
 }

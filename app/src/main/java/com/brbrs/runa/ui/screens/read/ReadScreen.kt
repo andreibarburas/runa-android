@@ -1,9 +1,11 @@
 package com.brbrs.runa.ui.screens.read
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -37,10 +39,10 @@ import javax.inject.Inject
 // ── Grouped list item types ───────────────────────────────────────────────────
 
 sealed class ReadItem {
-    data class YearHeader(val year: String)                                      : ReadItem()
-    data class MonthHeader(val year: String, val month: String)                  : ReadItem()
-    data class DayHeader(val year: String, val month: String, val day: String, val weekday: String) : ReadItem()
-    data class Entry(val entry: JournalEntry)                                    : ReadItem()
+    data class YearHeader(val year: String)                                                          : ReadItem()
+    data class MonthHeader(val year: String, val month: String)                                      : ReadItem()
+    data class DayHeader(val year: String, val month: String, val day: String, val weekday: String)  : ReadItem()
+    data class Entry(val entry: JournalEntry)                                                        : ReadItem()
 }
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
@@ -50,31 +52,54 @@ class ReadViewModel @Inject constructor(
     private val journalRepository: JournalRepository,
 ) : ViewModel() {
 
-    private val _searchQuery = MutableStateFlow("")
-    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+    private val _searchQuery  = MutableStateFlow("")
+    private val _activeTag    = MutableStateFlow<String?>(null)
+
+    val searchQuery: StateFlow<String>   = _searchQuery.asStateFlow()
+    val activeTag:   StateFlow<String?>  = _activeTag.asStateFlow()
+
+    /** All tags across all entries — for the filter row. */
+    val allTags: StateFlow<List<String>> = journalRepository.getAllTags()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val rawEntries: StateFlow<List<JournalEntry>> = _searchQuery
-        .debounce(300)
-        .flatMapLatest { query ->
-            if (query.isBlank()) journalRepository.getAllEntries()
-            else journalRepository.searchEntries(query)
+    private val rawEntries: StateFlow<List<JournalEntry>> = combine(
+        _searchQuery.debounce(300),
+        _activeTag,
+    ) { query, tag -> Pair(query, tag) }
+        .flatMapLatest { (query, tag) ->
+            when {
+                query.isNotBlank() -> journalRepository.searchEntries(query)
+                tag  != null       -> journalRepository.getEntriesByTag(tag)
+                else               -> journalRepository.getAllEntries()
+            }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /**
-     * When searching, return flat entries (no headers — grouping would be noisy).
-     * When browsing, return fully grouped list with year/month/day headers.
-     */
-    val readItems: StateFlow<List<ReadItem>> = combine(rawEntries, _searchQuery) { entries, query ->
-        if (query.isNotBlank()) {
+    val readItems: StateFlow<List<ReadItem>> = combine(
+        rawEntries,
+        _searchQuery,
+        _activeTag,
+    ) { entries, query, tag ->
+        if (query.isNotBlank() || tag != null) {
+            // Flat list when filtering
             entries.map { ReadItem.Entry(it) }
         } else {
             buildGroupedList(entries)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun onSearchQueryChanged(q: String) = _searchQuery.update { q }
+    fun onSearchQueryChanged(q: String) {
+        _searchQuery.update { q }
+        if (q.isNotBlank()) _activeTag.value = null   // search clears tag filter
+    }
+
+    fun onTagSelected(tag: String) {
+        _activeTag.value = if (_activeTag.value == tag) null else tag
+        _searchQuery.value = ""   // tag filter clears search
+    }
+
+    fun clearTagFilter() { _activeTag.value = null }
 
     private fun buildGroupedList(entries: List<JournalEntry>): List<ReadItem> {
         val items     = mutableListOf<ReadItem>()
@@ -83,22 +108,19 @@ class ReadViewModel @Inject constructor(
         var lastDay   = ""
 
         for (entry in entries) {
-            val cal      = Calendar.getInstance().apply { timeInMillis = entry.entryDateTimeMs }
-            val year     = "%04d".format(cal.get(Calendar.YEAR))
-            val month    = SimpleDateFormat("MMMM", Locale.getDefault()).format(cal.time)
-            val day      = "%02d".format(cal.get(Calendar.DAY_OF_MONTH))
-            val weekday  = SimpleDateFormat("EEEE", Locale.getDefault()).format(cal.time)
+            val cal     = Calendar.getInstance().apply { timeInMillis = entry.entryDateTimeMs }
+            val year    = "%04d".format(cal.get(Calendar.YEAR))
+            val month   = SimpleDateFormat("MMMM", Locale.getDefault()).format(cal.time)
+            val day     = "%02d".format(cal.get(Calendar.DAY_OF_MONTH))
+            val weekday = SimpleDateFormat("EEEE", Locale.getDefault()).format(cal.time)
 
             if (year != lastYear) {
                 items.add(ReadItem.YearHeader(year))
-                lastYear  = year
-                lastMonth = ""
-                lastDay   = ""
+                lastYear = year; lastMonth = ""; lastDay = ""
             }
             if (month != lastMonth) {
                 items.add(ReadItem.MonthHeader(year, month))
-                lastMonth = month
-                lastDay   = ""
+                lastMonth = month; lastDay = ""
             }
             if (day != lastDay) {
                 items.add(ReadItem.DayHeader(year, month, day, weekday))
@@ -120,12 +142,10 @@ fun ReadScreen(
     val isDark      = LocalIsDark.current
     val readItems   by viewModel.readItems.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val allTags     by viewModel.allTags.collectAsState()
+    val activeTag   by viewModel.activeTag.collectAsState()
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .runaBackground(isDark),
-    ) {
+    Box(modifier = Modifier.fillMaxSize().runaBackground(isDark)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -142,6 +162,7 @@ fun ReadScreen(
 
             Spacer(Modifier.height(16.dp))
 
+            // Search bar
             OutlinedTextField(
                 value           = searchQuery,
                 onValueChange   = viewModel::onSearchQueryChanged,
@@ -162,10 +183,44 @@ fun ReadScreen(
                 ),
             )
 
+            // Tag filter row — only shown when there are tags
+            if (allTags.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier              = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment     = Alignment.CenterVertically,
+                ) {
+                    allTags.forEach { tag ->
+                        val isSelected = activeTag == tag
+                        FilterChip(
+                            selected = isSelected,
+                            onClick  = { viewModel.onTagSelected(tag) },
+                            label    = { Text("#$tag", style = MaterialTheme.typography.labelLarge) },
+                            shape    = RoundedCornerShape(8.dp),
+                            colors   = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                selectedLabelColor     = MaterialTheme.colorScheme.primary,
+                                containerColor         = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                labelColor             = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled       = true,
+                                selected      = isSelected,
+                                borderColor         = MaterialTheme.colorScheme.outline,
+                                selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                            ),
+                        )
+                    }
+                }
+            }
+
             Spacer(Modifier.height(16.dp))
 
             if (readItems.isEmpty()) {
-                EmptyState()
+                EmptyState(hasFilter = searchQuery.isNotBlank() || activeTag != null)
             } else {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(0.dp),
@@ -224,21 +279,12 @@ private fun MonthHeader(month: String) {
 @Composable
 private fun DayHeader(day: String, weekday: String) {
     Row(
-        modifier = Modifier.padding(top = 12.dp, bottom = 6.dp, start = 2.dp),
-        verticalAlignment = Alignment.Bottom,
+        modifier              = Modifier.padding(top = 12.dp, bottom = 6.dp, start = 2.dp),
+        verticalAlignment     = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
-            text  = day,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        Text(
-            text     = weekday,
-            style    = MaterialTheme.typography.bodySmall,
-            color    = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 1.dp),
-        )
+        Text(day,     style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
+        Text(weekday, style = MaterialTheme.typography.bodySmall,   color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 1.dp))
     }
 }
 
@@ -255,12 +301,12 @@ private fun EntryListItem(
     }
 
     Row(
-        modifier = Modifier
+        modifier              = Modifier
             .fillMaxWidth()
             .runaCard(isDark, cornerRadius = 14.dp)
             .clickable(onClick = onClick)
             .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment     = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
@@ -282,9 +328,31 @@ private fun EntryListItem(
                     maxLines = if (entry.title.isBlank()) 3 else 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
             }
-            // Only show time — date is clear from the headers above
+            // Tags
+            if (entry.tags.isNotEmpty()) {
+                Row(
+                    modifier              = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    entry.tags.take(3).forEach { tag ->
+                        Text(
+                            text  = "#$tag",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        )
+                    }
+                    if (entry.tags.size > 3) {
+                        Text(
+                            text  = "+${entry.tags.size - 3}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
             Text(
                 text  = timeLabel,
                 style = MaterialTheme.typography.labelSmall,
@@ -298,9 +366,7 @@ private fun EntryListItem(
                 model              = File(firstPhoto),
                 contentDescription = null,
                 contentScale       = ContentScale.Crop,
-                modifier           = Modifier
-                    .size(64.dp)
-                    .clip(RoundedCornerShape(10.dp)),
+                modifier           = Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)),
             )
         }
     }
@@ -309,17 +375,28 @@ private fun EntryListItem(
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun EmptyState() {
+private fun EmptyState(hasFilter: Boolean) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Icon(
                 Icons.Outlined.AutoStories,
                 contentDescription = null,
                 tint     = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
                 modifier = Modifier.size(56.dp),
             )
-            Text("No entries yet", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Start writing your first memory", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+            Text(
+                if (hasFilter) "No entries match" else "No entries yet",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                if (hasFilter) "Try a different search or tag" else "Start writing your first memory",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            )
         }
     }
 }

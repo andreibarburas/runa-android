@@ -19,6 +19,7 @@ data class JournalEntry(
     val locationName: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val tags: List<String> = emptyList(),
 )
 
 @Singleton
@@ -30,6 +31,21 @@ class JournalRepository @Inject constructor(
 
     fun searchEntries(query: String): Flow<List<JournalEntry>> =
         dao.searchEntries(query).map { list -> list.map { it.toDomain() } }
+
+    fun getEntriesByTag(tag: String): Flow<List<JournalEntry>> =
+        dao.getEntriesByTag(tag).map { list ->
+            // SQLite LIKE on JSON can have false positives — filter precisely in-app
+            list.filter { parseJsonTags(it.tagsJson).contains(tag) }.map { it.toDomain() }
+        }
+
+    /** Emits a sorted, deduplicated list of all tags across all entries. */
+    fun getAllTags(): Flow<List<String>> =
+        dao.getAllTagsJson().map { jsonList ->
+            jsonList
+                .flatMap { parseJsonTags(it) }
+                .distinct()
+                .sorted()
+        }
 
     suspend fun getById(id: String): JournalEntry? = dao.getById(id)?.toDomain()
 
@@ -50,13 +66,13 @@ class JournalRepository @Inject constructor(
 
     suspend fun markAllUnsynced() = dao.markAllUnsynced()
 
-    fun getEntryCount(): kotlinx.coroutines.flow.Flow<Int> = dao.getEntryCount()
+    fun getEntryCount(): Flow<Int> = dao.getEntryCount()
 
     suspend fun getDeletedIds(): List<String> = dao.getDeletedIds()
 
     suspend fun getAllForExport(): List<JournalEntry> = dao.getAllForExport().map { it.toDomain() }
 
-    fun getEntriesWithLocation(): kotlinx.coroutines.flow.Flow<List<JournalEntry>> =
+    fun getEntriesWithLocation(): Flow<List<JournalEntry>> =
         dao.getEntriesWithLocation().map { list -> list.map { it.toDomain() } }
 
     // ── Mapping ───────────────────────────────────────────────────────────────
@@ -71,6 +87,7 @@ class JournalRepository @Inject constructor(
         locationName    = locationName,
         latitude        = latitude,
         longitude       = longitude,
+        tags            = parseJsonTags(tagsJson),
     )
 
     private fun JournalEntry.toEntity() = JournalEntryEntity(
@@ -84,6 +101,7 @@ class JournalRepository @Inject constructor(
         locationName    = locationName,
         latitude        = latitude,
         longitude       = longitude,
+        tagsJson        = buildJsonTags(tags),
     )
 
     private fun parseJsonPaths(json: String): List<String> = try {
@@ -92,8 +110,15 @@ class JournalRepository @Inject constructor(
     } catch (e: Exception) { emptyList() }
 
     private fun buildJsonPaths(paths: List<String>): String {
-        val arr = JSONArray()
-        paths.forEach { arr.put(it) }
-        return arr.toString()
+        val arr = JSONArray(); paths.forEach { arr.put(it) }; return arr.toString()
+    }
+
+    private fun parseJsonTags(json: String): List<String> = try {
+        val arr = JSONArray(json)
+        (0 until arr.length()).map { arr.getString(it) }
+    } catch (e: Exception) { emptyList() }
+
+    private fun buildJsonTags(tags: List<String>): String {
+        val arr = JSONArray(); tags.forEach { arr.put(it) }; return arr.toString()
     }
 }

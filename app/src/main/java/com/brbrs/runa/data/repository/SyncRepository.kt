@@ -239,6 +239,11 @@ class SyncRepository @Inject constructor(
             entry.locationName?.let { put("locationName", it) }
             entry.latitude?.let  { put("latitude",  it) }
             entry.longitude?.let { put("longitude", it) }
+            if (entry.tags.isNotEmpty()) {
+                val tagsArr = org.json.JSONArray()
+                entry.tags.forEach { tagsArr.put(it) }
+                put("tags", tagsArr)
+            }
         }
         return obj.toString(2)
     }

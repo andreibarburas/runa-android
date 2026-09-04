@@ -3,6 +3,8 @@ package com.brbrs.runa.ui.screens.map
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.drawable.GradientDrawable
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,35 +38,32 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.ITileSource
-import org.osmdroid.tileprovider.tilesource.XYTileSource
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import javax.inject.Inject
 
-// ── Tile sources — identical to Qarib ────────────────────────────────────────
+// ── Dark mode colour filter ───────────────────────────────────────────────────
+// Applied to MAPNIK tiles in dark mode to invert luminance and desaturate,
+// targeting OSM water (#AAD3DF) → #262626 and land (#F2EFE9) → #090909.
+// Passes null in light mode — TilesOverlay.INVERT_COLORS_NONE was removed.
 
-private val CartoPositron: ITileSource = XYTileSource(
-    "CartoDBPositron", 0, 20, 256, ".png",
-    arrayOf(
-        "https://a.basemaps.cartocdn.com/light_all/",
-        "https://b.basemaps.cartocdn.com/light_all/",
-        "https://c.basemaps.cartocdn.com/light_all/",
-    ),
-    "© OpenStreetMap contributors © CARTO"
-)
-
-private val CartoDarkMatter: ITileSource = XYTileSource(
-    "CartoDBDarkMatter", 0, 20, 256, ".png",
-    arrayOf(
-        "https://a.basemaps.cartocdn.com/dark_all/",
-        "https://b.basemaps.cartocdn.com/dark_all/",
-        "https://c.basemaps.cartocdn.com/dark_all/",
-    ),
-    "© OpenStreetMap contributors © CARTO"
-)
+private val WARM_DARK_FILTER: ColorMatrixColorFilter by lazy {
+    val s = 0.7416f
+    val cr = -s * 0.299f; val cg = -s * 0.587f; val cb = -s * 0.114f
+    val bias = s * 255f
+    val matrix = ColorMatrix(
+        floatArrayOf(
+            cr, cg, cb, 0f, bias,
+            cr, cg, cb, 0f, bias,
+            cr, cg, cb, 0f, bias,
+             0f, 0f, 0f, 1f,   0f,
+        )
+    )
+    ColorMatrixColorFilter(matrix)
+}
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
 
@@ -110,7 +109,6 @@ fun MapScreen(
         }
     }
 
-    // Resolve marker colour in composable scope — same pattern as Qarib
     val markerArgb = DarkPrimary.toArgb()
 
     Column(
@@ -135,9 +133,9 @@ fun MapScreen(
             if (entries.isEmpty()) {
                 EmptyMapState()
             } else {
-                // OsmMapView — verbatim copy of Qarib's implementation
                 OsmMapView(
                     entries       = entries,
+                    isDark        = isDark,
                     markerArgb    = markerArgb,
                     onMarkerClick = onEntryClick,
                     modifier      = Modifier.fillMaxSize(),
@@ -147,20 +145,18 @@ fun MapScreen(
     }
 }
 
-// ── OsmMapView — direct port of Qarib's OsmMapView ───────────────────────────
+// ── OsmMapView ────────────────────────────────────────────────────────────────
 
 @Composable
 private fun OsmMapView(
     entries: List<JournalEntry>,
+    isDark: Boolean,
     markerArgb: Int,
     onMarkerClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
-    val isDark         = LocalIsDark.current
-    val tileSource     = if (isDark) CartoDarkMatter else CartoPositron
-
-    val hasFitBounds = remember { mutableStateOf(false) }
+    val hasFitBounds   = remember { mutableStateOf(false) }
 
     AndroidView(
         modifier = modifier
@@ -174,22 +170,31 @@ private fun OsmMapView(
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 )
-                setTileSource(tileSource)
+                setTileSource(TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
-
                 controller.setZoom(12.0)
-                val fallbackCenter = if (entries.isNotEmpty()) {
-                    GeoPoint(entries.first().latitude!!, entries.first().longitude!!)
-                } else {
-                    GeoPoint(52.3676, 4.9041)
-                }
-                controller.setCenter(fallbackCenter)
+                controller.setCenter(
+                    if (entries.isNotEmpty())
+                        GeoPoint(entries.first().latitude!!, entries.first().longitude!!)
+                    else
+                        GeoPoint(52.3676, 4.9041)
+                )
+                // Apply dark filter immediately on construction if needed
+                overlayManager.tilesOverlay.setColorFilter(
+                    if (isDark) WARM_DARK_FILTER else null
+                )
             }
         },
         update   = { mapView ->
-            if (mapView.tileProvider.tileSource.name() != tileSource.name()) {
-                mapView.setTileSource(tileSource)
+            // Single tile source for both modes — filter handles dark appearance
+            if (mapView.tileProvider.tileSource.name() != TileSourceFactory.MAPNIK.name()) {
+                mapView.setTileSource(TileSourceFactory.MAPNIK)
             }
+
+            // Update dark filter on theme change
+            mapView.overlayManager.tilesOverlay.setColorFilter(
+                if (isDark) WARM_DARK_FILTER else null
+            )
 
             mapView.overlays.clear()
 
@@ -214,7 +219,6 @@ private fun OsmMapView(
         }
     )
 
-    // Identical to Qarib's DisposableEffect — no onResume/onPause calls
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -228,7 +232,7 @@ private fun OsmMapView(
     }
 }
 
-// ── Helpers — identical to Qarib ─────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 private fun fitToEntries(mapView: MapView, entries: List<JournalEntry>) {
     if (entries.size == 1) {

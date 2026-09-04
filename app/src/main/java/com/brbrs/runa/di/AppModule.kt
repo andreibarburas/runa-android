@@ -24,7 +24,7 @@ object AppModule {
     @Provides @Singleton
     fun provideRunaDatabase(@ApplicationContext context: Context): RunaDatabase =
         Room.databaseBuilder(context, RunaDatabase::class.java, RunaDatabase.DATABASE_NAME)
-            .addMigrations(RunaDatabase.MIGRATION_1_2)
+            .addMigrations(RunaDatabase.MIGRATION_1_2, RunaDatabase.MIGRATION_2_3)
             .build()
 
     @Provides @Singleton
@@ -45,7 +45,7 @@ object AppModule {
             .addInterceptor { chain ->
                 chain.proceed(
                     chain.request().newBuilder()
-                        .header("User-Agent", "Runa/1.0.0 (Android)")
+                        .header("User-Agent", "Runa/1.2.0 (Android)")
                         .build()
                 )
             }

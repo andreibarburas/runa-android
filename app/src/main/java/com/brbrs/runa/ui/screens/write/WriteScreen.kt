@@ -30,6 +30,7 @@ import com.brbrs.runa.data.repository.JournalEntry
 import com.brbrs.runa.data.repository.JournalRepository
 import com.brbrs.runa.data.repository.SyncRepository
 import com.brbrs.runa.ui.components.PhotoPickerRow
+import com.brbrs.runa.ui.components.TagInputRow
 import com.brbrs.runa.ui.theme.*
 import com.brbrs.runa.ui.theme.DMSerifDisplayFamily
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -55,6 +56,7 @@ data class WriteUiState(
     val locationName: String?   = null,
     val latitude: Double?       = null,
     val longitude: Double?      = null,
+    val tags: List<String>      = emptyList(),
     val isSaving: Boolean       = false,
     val saved: Boolean          = false,
     val error: String?          = null,
@@ -81,6 +83,8 @@ class WriteViewModel @Inject constructor(
         it.copy(locationName = result.shortName, latitude = result.latitude, longitude = result.longitude)
     }
     fun onLocationCleared() = _uiState.update { it.copy(locationName = null, latitude = null, longitude = null) }
+    fun onTagAdded(tag: String)   = _uiState.update { it.copy(tags = it.tags + tag) }
+    fun onTagRemoved(tag: String) = _uiState.update { it.copy(tags = it.tags - tag) }
 
     fun onPhotoPicked(uri: Uri, index: Int) {
         viewModelScope.launch {
@@ -159,6 +163,7 @@ class WriteViewModel @Inject constructor(
                     locationName    = state.locationName,
                     latitude        = state.latitude,
                     longitude       = state.longitude,
+                    tags            = state.tags,
                 )
             )
             // Auto-sync to Nextcloud (no-op if local mode)
@@ -385,6 +390,21 @@ fun WriteScreen(
                     }
 
                     Spacer(Modifier.height(8.dp))
+
+                    Text(
+                        "Tags",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    TagInputRow(
+                        tags         = uiState.tags,
+                        onTagAdded   = viewModel::onTagAdded,
+                        onTagRemoved = viewModel::onTagRemoved,
+                        modifier     = Modifier.fillMaxWidth(),
+                    )
+
+                    Spacer(Modifier.height(16.dp))
 
                     Text(
                         "Photos",

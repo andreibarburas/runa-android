@@ -20,4 +20,6 @@ data class JournalEntryEntity(
     val locationName: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    // v3 — tags
+    val tagsJson: String = "[]",
 )

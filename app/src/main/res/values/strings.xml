@@ -86,7 +86,7 @@
     <string name="settings_privacy_policy_subtitle">How Runa handles your data</string>
     <string name="settings_view_on_github">View on GitHub</string>
     <string name="settings_view_on_github_subtitle">Feedback, feature requests and source code</string>
-    <string name="settings_footer">Runa 1.0.1 · by andrei BARBURAS</string>
+    <string name="settings_footer">Runa 1.2.0 · by andrei BARBURAS</string>
 
     <!-- App lock -->
     <string name="applock_touch_to_unlock_hint">Touch the sensor to unlock</string>

@@ -3,14 +3,16 @@ Runa is a private, personal journal. Write down the moments that matter — with
 FEATURES
 • Write journal entries with title, body, date/time, and up to 5 photos
 • Retroactive entries — log memories from years ago, not just today
+• Tag entries and filter your journal by tag
 • Photos from gallery or camera, with EXIF rotation correction
 • Share images from any app straight into Runa's Write screen
 • Read tab grouped by year, month, and day
-• Map view — every entry with a location becomes a pin
+• Map view (OpenStreetMap) — every entry with a location becomes a pin, no third-party account required
 • Nextcloud WebDAV sync (Login Flow v2)
 • Local-only mode — no server required
 • Biometric app lock
-• Dark and light theme, in-app text size control
+• Dark and light theme, with a warm night map for comfortable evening viewing
+• In-app text size control
 • Export your journal and photos as a ZIP
 
 PRIVACY

@@ -2,6 +2,8 @@ package com.brbrs.runa.ui.screens.detail
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
@@ -273,6 +275,36 @@ fun EntryDetailScreen(
                         thickness = 1.dp,
                         modifier  = Modifier.padding(vertical = 4.dp),
                     )
+
+                    // Tags
+                    if (entry.tags.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            modifier              = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            entry.tags.forEach { tag ->
+                                SuggestionChip(
+                                    onClick = {},
+                                    label   = {
+                                        Text(
+                                            "#$tag",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    },
+                                    shape  = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                                    colors = SuggestionChipDefaults.suggestionChipColors(
+                                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                    ),
+                                    border = SuggestionChipDefaults.suggestionChipBorder(
+                                        enabled     = true,
+                                        borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                                    ),
+                                )
+                            }
+                        }
+                    }
 
                     Spacer(Modifier.height(16.dp))
 

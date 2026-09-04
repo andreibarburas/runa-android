@@ -9,7 +9,7 @@ import com.brbrs.runa.data.local.entity.JournalEntryEntity
 
 @Database(
     entities = [JournalEntryEntity::class],
-    version  = 2,
+    version  = 3,
     exportSchema = false,
 )
 abstract class RunaDatabase : RoomDatabase() {
@@ -23,6 +23,12 @@ abstract class RunaDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE journal_entries ADD COLUMN locationName TEXT")
                 db.execSQL("ALTER TABLE journal_entries ADD COLUMN latitude REAL")
                 db.execSQL("ALTER TABLE journal_entries ADD COLUMN longitude REAL")
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE journal_entries ADD COLUMN tagsJson TEXT NOT NULL DEFAULT '[]'")
             }
         }
     }

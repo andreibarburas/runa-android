@@ -61,6 +61,11 @@ class ExportRepository @Inject constructor(
                         entry.latitude?.let  { put("latitude",  it) }
                         entry.longitude?.let { put("longitude", it) }
                         put("photoCount",     entry.photoPaths.size)
+                        if (entry.tags.isNotEmpty()) {
+                            val tagsArr = org.json.JSONArray()
+                            entry.tags.forEach { tagsArr.put(it) }
+                            put("tags", tagsArr)
+                        }
                     }
                     jsonArray.put(obj)
                 }
